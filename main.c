@@ -32,7 +32,7 @@ void parse_args(const int argc, char **argv, int *monitor_index, const char **pi
     if (!*pic_path) {
         fprintf(stderr, "Usage: %s [-mN] <pic-file>\n", argv[0]);
         fprintf(stderr, "  -mN   open on monitor N (default: 1)\n");
-        exit( EXIT_FAILURE);
+        exit(EXIT_FAILURE);
     }
 
     if (*monitor_index < 0 || *monitor_index >= monitor_count) {
@@ -52,9 +52,9 @@ static void framebuffer_size_callback(GLFWwindow *window, int width, int height)
     glMatrixMode(GL_MODELVIEW);
 }
 
-static void key_callback(GLFWwindow* window, const int key, const int scan_code, const int action, const int mods)
-{
-    (void)scan_code; (void)mods;
+static void key_callback(GLFWwindow *window, const int key, const int scan_code, const int action, const int mods) {
+    (void) scan_code;
+    (void) mods;
 
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -95,8 +95,8 @@ int main(int argc, char **argv) {
     parse_args(argc, argv, &monitor_index, &pic_path, monitor_count);
 
     GLFWwindow *window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT,
-                                      WINDOW_TITLE,
-                                      monitors[monitor_index], NULL);
+                                          WINDOW_TITLE,
+                                          monitors[monitor_index], NULL);
     if (!window) {
         fprintf(stderr, "Failed to create GLFW window\n");
         glfwTerminate();
