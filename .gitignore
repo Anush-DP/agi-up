@@ -1,0 +1,7 @@
+main
+.DS_Store
+.claude/
+.idea/
+build/
+*.zip
+*.bmp

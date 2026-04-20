@@ -1,0 +1,362 @@
+Picture resources
+Written by Lance Ewing
+Additions/modifications by Claudio Matsuoka based on the AGDS documentation translated by Vassili Bykov
+
+(note this document was coped from https://wiki.sierrahelp.com/index.php/AGI_Specifications:_Chapter_7_-_Picture_Resources)
+
+(Last updated: 22 May 1999).
+ 
+
+
+Contents
+1	7.1 Introduction
+2	7.2 Picture resource format
+2.1	Color palette
+2.2	General actions
+2.3	The corner action
+2.4	Brush style
+2.5	Texture data
+3	7.3 Implementation
+3.1	General guidelines
+3.2	Line drawing
+3.3	Flood filling
+4	7.4 Using higher resolution modes
+5	7.5 Sierra's picture editor
+6	7.6 Sample code
+
+7.1 Introduction
+Picture is usually used for background pictures and other full screen images. Pictures in AGI and early SCI games are not stored as a complete picture. Instead they're constructed and stored as coordinates and vectors. Vectors give the instructions for drawing a picture and they have the advantage of taking less space than would a bit image of a complete picture.
+
+Pictures are drawn using nine different drawing actions. These actions are given values from 0xF0 to 0xFA and are defined as follows:
+
+0xF0: Change picture color and enable picture draw.
+0xF1: Disable picture draw.
+0xF2: Change priority color and enable priority draw.
+0xF3: Disable priority draw.
+0xF4: Draw a Y corner.
+0xF5: Draw an X corner.
+0xF6: Absolute line (long lines).
+0xF7: Relative line (short lines).
+0xF8: Fill.
+0xF9: Change pen size and style.
+0xFA: Plot with pen.
+0xFB--0xFE: Unused in most AGI games.
+Note: SQ2 appears to be the only AGI version 2 game that uses 0xF9 and 0xFA. The AGI interpreters before this game will most likely not support these two drawing actions.
+
+In the following detailed descriptions of each action, the word picture refers to the screen that is seen by the player when they play the AGI screen. The word priority refers to the screen that is held in memory and contains control information invisible to the player. As a picture is drawn, both screens are updated depending on whether drawing is enabled from each screen.
+
+
+7.2 Picture resource format
+The Picture data can be processed byte by byte. Whenever a value of 0xF0 or greater is encountered, the action is changed to the one given and then all the bytes between this code and the next action code are arguments to this action. Half of the actions have a set number of arguments, the other half can have an unlimited number of arguments. The special code 0xFF says that the end of the picture data has been reached. All other values are used by the various drawing actions to tell them what to draw and will always be less than 0xF0.
+
+Color palette
+The following colors are used in AGI. RGB is given in 6 bit values.
+
+Code  Color             R    G    B
+----- ---------------- ---- ---- ----
+  0   black            0x00 0x00 0x00
+  1   blue             0x00 0x00 0x2A
+  2   green            0x00 0x2A 0x00
+  3   cyan             0x00 0x2A 0x2A
+  4   red              0x2A 0x00 0x00
+  5   magenta          0x2A 0x00 0x2A
+  6   brown            0x2A 0x15 0x00
+  7   light grey       0x2A 0x2A 0x2A
+  8   dark drey        0x15 0x15 0x15
+  9   light blue       0x15 0x15 0x3F
+ 10   light green      0x15 0x3F 0x15
+ 11   light cyan       0x15 0x3F 0x3F
+ 12   light red        0x3F 0x15 0x15
+ 13   light magenta    0x3F 0x15 0x3F
+ 14   yellow           0x3F 0x3F 0x15
+ 15   white            0x3F 0x3F 0x3F
+   
+General actions
+0xF0: Change picture color and enable picture draw
+
+Function: Changes the current drawing color for the picture screen to that given by the one and only argument, and enables subsequent actions to draw to the picture screen.
+ 
+Initially all pixels of the background are white and have priority 4. After this command is executed, all the subsequent graphic commands draw using the color set by the command.
+ 
+Example: F0 0D changes picture screen drawing color to light magenta and enables drawing to the picture screen.
+
+0xF1: Disable picture draw
+
+Function: Disables drawing to the picture screen. This is done whenever there is something which only needs to be drawn on the priority screen such as the control lines. There are no arguments for this action.
+
+0xF2: Change priority color and enable priority draw
+
+Function: Changes the current drawing color for the priority screen to that given by the one and only argument, and enables subsequent actions to draw to the priority screen.
+ 
+Example: F0 04 changes priority screen drawing color to red and enables drawing to the priority screen.
+
+0xF3: Disable priority draw
+
+Function: Disables drawing to the priority screen. This is done whenever there is something which only needs to be drawn on the picture screen such as the finer details of the picture. There are no arguments for this action.
+
+The corner action
+I call the following two actions the corner actions because they do not draw diagonal lines at all but instead alternate from horizontal line to vertical line (or vice versa) giving rise to a series of right angled corners.
+
+       _________
+      |         |    B__
+      |         |_____  |
+      |               |_|
+      A
+The above diagram shows the type of pattern created. If A were the starting coordinate, then it would be called a Y corner. This is because the Y or vertical component is changed first. If B were the starting coordinate, then it would be called an X corner. This is because the X or horizontal component is changed first.
+
+0xF4: Draw a Y corner
+
+Function: The first two arguments for this action are the coordinates of the starting position on the screen in the order x and then y. The remaining arguments are in the order y1, x1, y2, x2, ...
+ 
+Note that the y component is the first to be changed and also note that this action does not necessarily end on either component, it just ends when the next byte of 0xF0 or above is encountered. A line is drawn after each byte is processed.
+ 
+
+Example: F4 16 16 18 12 16 F?
+
+ (0x12, 0x16)     (0x16, 0x16)
+             E   S                  S = Start
+             X   X                  E = End
+             XXXXX                  X = normal piXel
+ (0x12, 0x18)     (0x16, 0x18)
+0xF5: Draw an X corner
+
+Function: The first two arguments for this action are the coordinates of the starting position on the screen in the order x and then y. The remaining arguments are in the order x1, y1, x2, y2, ...
+ 
+Note that the x component is the first to be changed and also note that this action does not necessarily end on either component, it just ends when the next byte of 0xF0 or above is encountered. A line is drawn after each byte is processed.
+ 
+
+Example: F5 16 16 18 12 16 F?
+
+  (0x16, 0x12)   (0x18, 0x12)
+              EXX
+                X            S = Start
+                X            E = End
+                X            X = normal piXel
+              SXX
+  (0x16, 0x16)   (0x18, 0x16)
+0xF6: Absolute line
+
+Function: Draws lines between points. The first two arguments are the starting coordinates. The remaining arguments are in groups of two which give the coordinates of the next location to draw a line to. There can be any number of arguments but there should always be an even number.
+ 
+Example: F6 30 50 34 51 38 53 F?
+ 
+This sequence draws a line from (48, 80) to (52, 81), and a line from (52, 81) to (56, 83).
+
+0xF7: Relative line
+
+Function: Draw short relative lines. By relative we mean that the data gives displacements which are relative from the current location. The first argument gives the standard starting coordinates. All the arguments which follow these first two are of the following format:
+
++---+-----------+---+-----------+
+| S |   Xdisp   | S |   Ydisp   |
++---+---+---+---+---+---+---+---+
+| 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
++---+---+---+---+---+---+---+---+
+This gives a displacement range of between -7 and +7 for both the X and the Y direction.
+ 
+Example: F7 10 10 22 40 06 CC F?
+
+              S
+               +              S = Start
+                X+++X         X = End of each line
+                    +         + = pixels in each line
+                E   +         E = End
+                 +  +
+                  + +         Remember that CC = (x-4, y-4).
+                   ++
+                    X
+0xF8: Fill
+
+Function: Flood fill from the locations given. Arguments are given in groups of two bytes which give the coordinates of the location to start the fill at. If picture drawing is enabled then it flood fills from that location on the picture screen to all pixels locations that it can reach which are white in color. The boundary is given by any pixels which are not white.
+ 
+If priority drawing is enabled, and picture drawing is not enabled, then it flood fills from that location on the priority screen to all pixels that it can reach which are red in color. The boundary in this case is given by any pixels which are not red.
+ 
+If both picture drawing and priority drawing are enabled, then a flood fill naturally enough takes place on both screens. In this case there is a difference in the way the fill takes place in the priority screen. The difference is that it not only looks for its own boundary, but also stops if it reaches a boundary that exists in the picture screen but does not necessarily exist in the priority screen.
+
+Brush style
+Drawing actions 0xF9 and 0xFA deal with plotting patterns. Most drawing programs have options to change the size, and style of the pen or brush. The style covers different shapes and textures. AGI PictureS provide these tools as well.
+
+0xF9: Change pen size and style
+
+Function: Change the characteristics of the pattern plotted by drawing action 0xFA. If bit 5 is not set, then the pattern is a solid shape. If bit 5 is set, then the pattern is like a splatter. Bit 4 selects whether the brush is a circle or a rectangle. Bits 0-2 give the size of the shape which will be a value from 0 to 7. These characteristics appear to only affect drawing action 0xFA.
+ 
+The default brush is a solid circle or rectangle of size 0, which should be used until an 0xF9 action is encountered.
+
+           ___ ___ ___ ___ ___ ___ ___ ___
+          | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+          |___|___|___|___|___|___|___|___|
+                    |   |       |___|___|
+ 0 = Solid _________|   |           |
+ 1 = Splatter           |           |______ Pen size
+                        |
+ 0 = Circle ____________|
+ 1 = Rectangle
+
+   RECTANGLE SIZES
+ X XX XXX XXXX XXXXX XXXXXX XXXXXXX XXXXXXXX         size+1
+ 0 X* XXX XXXX XXXXX XXXXXX XXXXXXX XXXXXXXX       _____________
+   XX X*X XXXX XXXXX XXXXXX XXXXXXX XXXXXXXX      |             |
+   1  XXX XX*X XXXXX XXXXXX XXXXXXX XXXXXXXX      |             |
+      XXX XXXX XX*XX XXXXXX XXXXXXX XXXXXXXX      |             |
+       2  XXXX XXXXX XXX*XX XXXXXXX XXXXXXXX      |             | (size*2)+1
+          XXXX XXXXX XXXXXX XXX*XXX XXXXXXXX      |             |
+           3   XXXXX XXXXXX XXXXXXX XXXX*XXX      |             |
+               XXXXX XXXXXX XXXXXXX XXXXXXXX      |             |
+                 4   XXXXXX XXXXXXX XXXXXXXX      |             |
+                     XXXXXX XXXXXXX XXXXXXXX      |             |
+  WHERE                5    XXXXXXX XXXXXXXX      |_____________|
+                            XXXXXXX XXXXXXXX
+    X = AGI pixels             6    XXXXXXXX         IN GENERAL
+    * = coordinates given           XXXXXXXX
+        for plot                       7
+
+   CIRCLE SIZES
+ X XX  X   XX    X     XX     XXX      XX            size+1
+ 0 X* XXX  XX   XXX   XXXX   XXXXX    XXXX         _____________
+   XX X*X XXXX XXXXX  XXXX   XXXXX   XXXXXX       |             |
+   1  XXX XX*X XXXXX  XXXX   XXXXX   XXXXXX       |             |
+       X  XXXX XX*XX XXXXXX XXXXXXX  XXXXXX       |             |
+       2   XX  XXXXX XXX*XX XXXXXXX XXXXXXXX      |             | (size*2)+1
+           XX  XXXXX XXXXXX XXX*XXX XXXXXXXX      |             |
+           3    XXX   XXXX  XXXXXXX XXXX*XXX      |             |
+                 X    XXXX  XXXXXXX XXXXXXXX      |             |
+                 4    XXXX   XXXXX  XXXXXXXX      |             |
+                       XX    XXXXX   XXXXXX       |             |
+  WHERE                5     XXXXX   XXXXXX       |_____________|
+                              XXX    XXXXXX
+    X = AGI pixels             6      XXXX           IN GENERAL
+    * = coordinates given              XX
+        for plot                       7
+To implement this you will need to store bitmaps for each of these of these circles.
+
+0xFA: Plot with pen
+
+Function: Plots points with the pen defined with drawing action 0xF9. If the pen style is set to solid, then the arguments are just a list of coordinates to be plotted. If the pen style is set to splatter brush (texture), then the arguments are in groups of three with the first argument giving the texture number and the other two giving the coordinates. The texture number determines in what way the pixels will splatter within the defined shape. Bits 1-7 seem to give the actual texture number. Bit 0 does not do anything. This means that there are 120 different pixel splatter bitmaps (values 0xF0 and above can not be used as they are treated as drawing actions). There is actually only 32 bytes of texture data which means that most of the splatter bitmaps overlap.
+
+Texture data
+All of the data needed for the 128 texture patterns is included in the following 32 bytes (256 bits):
+
+0x20, 0x94, 0x02, 0x24, 0x90, 0x82, 0xa4, 0xa2,
+0x82, 0x09, 0x0a, 0x22, 0x12, 0x10, 0x42, 0x14,
+0x91, 0x4a, 0x91, 0x11, 0x08, 0x12, 0x25, 0x10,
+0x22, 0xa8, 0x14, 0x24, 0x00, 0x50, 0x24, 0x04
+The only difference between each texture pattern is its starting position within this table. The following table gives the starting bit position in the above table for each texture pattern number given as the first argument of each pen plot:
+
+0x00, 0x18, 0x30, 0xc4, 0xdc, 0x65, 0xeb, 0x48,
+0x60, 0xbd, 0x89, 0x04, 0x0a, 0xf4, 0x7d, 0x6d,
+0x85, 0xb0, 0x8e, 0x95, 0x1f, 0x22, 0x0d, 0xdf,
+0x2a, 0x78, 0xd5, 0x73, 0x1c, 0xb4, 0x40, 0xa1,
+0xb9, 0x3c, 0xca, 0x58, 0x92, 0x34, 0xcc, 0xce,
+0xd7, 0x42, 0x90, 0x0f, 0x8b, 0x7f, 0x32, 0xed,
+0x5c, 0x9d, 0xc8, 0x99, 0xad, 0x4e, 0x56, 0xa6,
+0xf7, 0x68, 0xb7, 0x25, 0x82, 0x37, 0x3a, 0x51,
+0x69, 0x26, 0x38, 0x52, 0x9e, 0x9a, 0x4f, 0xa7,
+0x43, 0x10, 0x80, 0xee, 0x3d, 0x59, 0x35, 0xcf,
+0x79, 0x74, 0xb5, 0xa2, 0xb1, 0x96, 0x23, 0xe0,
+0xbe, 0x05, 0xf5, 0x6e, 0x19, 0xc5, 0x66, 0x49,
+0xf0, 0xd1, 0x54, 0xa9, 0x70, 0x4b, 0xa4, 0xe2,
+0xe6, 0xe5, 0xab, 0xe4, 0xd2, 0xaa, 0x4c, 0xe3,
+0x06, 0x6f, 0xc6, 0x4a, 0x75, 0xa3, 0x97, 0xe1
+Important note: When drawing the brush, if the bit position in the texture data (first table above) reaches 255, it should loop round to 0, instead of looping at 256 as you would normally expect. This may be because of a bug in the picture drawing code in the interpreter. If you loop at 256 then some of the patterns will not be correct.
+
+When a texture pattern is drawn in the shape of a circle, the texture pattern 'fills' the shape of the circle. This diagram will explain what I mean:
+
+   X.XX          X.
+   X.X.          XX
+   ....         X.X.
+   .X.X         ....
+   X...         .X.X
+   ..X.          X.
+   XXXX          ..
+
+ Rectangle     Circle
+The corner pixels of the circle which aren't part of the circle are totally ignored. The circle isn't just a cut out of the equivalent rectangle. A bit hard to explain. Look at the source of Showpic for more info.
+
+
+7.3 Implementation
+Writing code to interpret the picture data in order to draw the picture on the screen is easier said than done. It turns out that you have to have a line drawing algorithm which exactly matches the one that Sierra uses. A pixel out of place can mean that a fill overflows or doesn't work at all.
+
+You will also have to write your own fill routine because not many of the standard fill routines can stop at a multicolored boundary. You are also dealing with two screens both of which will probably be stored in memory somewhere rather than the screen.
+
+The picture screen has a starting state of being completely white. The priority screen has starting state of being completely red. It is important that you set all pixels in each screen to the relevant background color else you won't get the right result.
+
+General guidelines
+The screen mode used by the AGI games is the 320x200x16 standard EGA mode. However, all graphics is designed to be shown on a 160x200x16 mode. This was apparently the resolution that the original PCjr interpreter used. They stuck with it when they started supporting EGA and thus have a situation where each AGI pixel has a width of two normal 320x200 pixels.
+
+Line drawing
+This routine is relatively straight forward and I suggest that you look at it and try to understand it or you'll be having headaches trying to get you're routines acting like the Sierra ones. Basically it draws a line from (x1, y1) to (x2, y2) using a function called pset to draw a single pixel. The function round() is what makes it act like the Sierra. Essentially when it comes down to a 50:50 decision about where to put a pixel, the direction in which the line is being drawn is taken into account. I've only noticed one pixel out of place in all the screens I've tried Showpic on which makes me believe its probably not a fault in this algorithm, but somewhere else in the code.
+
+Note that Sarien (see section Other interpreters) use a different line drawing algorithm written by Joshua Neal and Stuart George.
+ 
+
+Code:
+<syntaxhighlight lang="agi"> int round(float aNumber, float dirn) {
+
+  if (dirn < 0)
+     return ((aNumber - floor(aNumber) <= 0.501) ?
+       floor(aNumber) : ceil(aNumber));
+  return ((aNumber - floor(aNumber) < 0.499) ?
+       floor(aNumber) : ceil(aNumber));
+}
+
+void drawline(word x1, word y1, word x2, word y2) {
+
+  int height, width;
+  float x, y, addX, addY;
+  height = (y2 - y1);
+  width = (x2 - x1);
+  addX = (height==0? height:(float)width/abs(height));
+  addY = (width==0? width:(float)height/abs(width));
+  if (abs(width) > abs(height)) {
+     y = y1;
+     addX = (width == 0? 0 : (width/abs(width)));
+     for (x=x1; x!=x2; x+=addX) {
+        pset(round(x, addX), round(y, addY));
+        y+=addY;
+     }
+     pset(x2,y2);
+  }
+  else {
+     x = x1;
+     addY = (height == 0? 0 : (height/abs(height)));
+     for (y=y1; y!=y2; y+=addY) {
+        pset(round(x, addX), round(y, addY));
+        x+=addX;
+     }
+     pset(x2,y2);
+  }
+} </syntaxhighlight>
+
+ 
+
+Flood filling
+I have discovered that using a queue in a flood fill routine works quite well. It is also the easiest method to understand as far as I'm concerned. I just thought about what needed to be done and this method took shape.
+
+Basically you start at a particular location. If its the desired background color (white or red depending on the screen), then set that pixel. You then check the pixels immediately up, left, down, and right to see if they are of the desired background color. If they are, store them in the queue. You then retrieve the first pixel position from the queue and repeat the above steps.
+
+
+7.4 Using higher resolution modes
+I've often wondered if it would be possible to show Pictures in a higher resolution, for example, 640x400. Since the data is stored as vectors, it should be possible to multiply all the x components by four and all the y components by two and then draw the lines. This would give less blocky pictures. There would be a number of problems to overcome. Firstly, the fill action (or tool) may cause problems because pixels could be in the wrong places. There will also be a need to draw end pixels of a line with a width of four so that there are no holes for the flood fill to flow out of.
+
+
+7.5 Sierra's picture editor
+The picture editor that Sierra used back in the vector picture days was much like a CAD program. I've seen a few photos of it in The Official Book of King's Quest. It has a status bar at the top which gives the current tool being used (Line, Fill, etc), the current X and Y locations, and four others which I explain below.
+
+Status bar examples:
+
+Tool:Line V:8 P:A C:o X=249 Y=89 Pri:5
+Tool:Fill V:B P:0 C:B X=96 Y=99 Pri:6
+Tool:Line V:A P:o C:o X=199 Y=55 Pri:2
+o = off (or disabled)
+
+Pri looks like it could be giving the current priority band that the cursor location is in. The above status lines are for the SCI Picture Editor. I ran these values past SQ3 and the values given for Pri are indeed the values of the priority band at the locations given.
+
+I think that V, P, and C refer to the colors being used on the three different screens (the SCI games have a separate screen for the control lines rather than having both the priority bands and control lines on the same screen. This is why there were three screens and not the two that we are used to in AGI games). This would mean that V = Visual, P = Priority and C = Control.
+
+In an AGI Picture Editor, there would only be the Visual screen and the Priority screen. The picture editor would obviously be able to switch between the two screens. I've also noticed that the early vector based SCI picture editor supports a feature which removes solid colors (Fills) with a single keystroke and I presume another keystroke puts them back. When the fills have been removed, they are represented as a tiny cross. Apparently removing the solid colors makes it easier to add small details like flowers.
+
+
+7.6 Sample code
+The following examples are available in the distribution package:
+
+picv3-v2.c by Lance Ewing: converts version 3 pictures to version 2 pictures
+showpic.c by Lance Ewing: displays pictures
