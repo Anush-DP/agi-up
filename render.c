@@ -62,6 +62,10 @@ static void upload_texture(void)
         unsigned char g = color_palette[c][1];
         unsigned char b = color_palette[c][2];
 
+        if (hover_cmd >= 0 && cmd_buf[i] == hover_cmd) {
+            r = 0xFF; g = 0x80; b = 0x00;
+        }
+
         // TODO
         // if (hover_cmd >= 0 && cmd_buf[i] == (int16_t)hover_cmd) {
         //     r = 0xFF; g = 0x80; b = 0x00;
