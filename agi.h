@@ -12,12 +12,8 @@
 /* ── AGI canvas dimensions ────────────────────────────────────────────── */
 #define PIC_W         160
 #define PIC_H         168
-#define PIC_MAX_SCALE   6     /* maximum hi-res upscale factor (H key)   */
+#define PIC_MAX_SCALE   6     /* hi-res upscale factor                     */
 #define PIC_BUFFER_SIZE (PIC_W * PIC_MAX_SCALE * PIC_H * PIC_MAX_SCALE)
-
-/* ── Native pixel aspect ratio (EGA 320×200 on 4:3 CRT) ──────────────── */
-#define PIXEL_W  10   /* screen pixels per AGI pixel, horizontal */
-#define PIXEL_H   6   /* screen pixels per AGI pixel, vertical   */
 
 /* ── AGI palette / opcode constants ──────────────────────────────────── */
 #define AGI_COLOR_WHITE  15   /* background / unfilled color index      */
@@ -50,6 +46,9 @@ extern int            cmd_count;
 extern int  pixel_buf[PIC_BUFFER_SIZE];
 extern int  cmd_buf[PIC_BUFFER_SIZE];
 
+// reference buffers store the original colour and command data from the first pass
+extern int  ref_pixel_buf[PIC_BUFFER_SIZE];
+extern int  ref_cmd_buf[PIC_BUFFER_SIZE];
 
 /* ── Palette (read by renderer for RGB conversion) ────────────────────── */
 extern const unsigned char color_palette[16][3];

@@ -35,3 +35,5 @@ extern int  hover_cmd;
 extern int  hover_x;
 extern int  hover_y;
 extern char hover_text[1024];
+
+extern bool enhance_mode;

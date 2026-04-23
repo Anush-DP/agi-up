@@ -12,18 +12,21 @@
 #include <GLFW/glfw3.h>
 
 #define STB_EASY_FONT_IMPLEMENTATION
+#include "hybrid.h"
 #include "libs/stb_easy_font.h"
 
 
 /* ── Private state ────────────────────────────────────────────────────── */
 static GLuint        pic_tex;
-static unsigned char tex_rgb[PIC_BUFFER_SIZE * 3];
+static unsigned char tex_rgb[HYBRID_BUFFER_SIZE * 3];
 
 /* ── Hover state (written by main.c, read by renderer) ───────────────── */
 int  hover_cmd  = -1;
 int  hover_x    = -1;
 int  hover_y    = -1;
 char hover_text[1024] = "";
+
+bool enhance_mode = false;
 
 void clear_hover(void)
 {
@@ -47,41 +50,63 @@ static void draw_text(float x, float y, float scale, const char *text,
     glPopMatrix();
 }
 
+
 /* ── Texture upload ───────────────────────────────────────────────────── */
 static void upload_texture(void)
 {
     glBindTexture(GL_TEXTURE_2D, pic_tex);
-    static int  last_pic_scale = 0;
-    const bool need_realloc = last_pic_scale != pic_scale;
-    const int cw  = PIC_W * pic_scale;
-    const int ch  = PIC_H * pic_scale;
-    const int npx = cw * ch;
+    static int  last_pic_scale    = 0;
+    static bool last_enhance_mode = false;
+    const bool need_realloc = last_pic_scale != pic_scale || last_enhance_mode != enhance_mode;
 
-    for (int i = 0; i < npx; i++) {
-        unsigned char c = pixel_buf[i];
-        if (c >= AGI_NUM_COLORS) c = AGI_NUM_COLORS - 1;
-        unsigned char r = color_palette[c][0];
-        unsigned char g = color_palette[c][1];
-        unsigned char b = color_palette[c][2];
+    int tex_w, tex_h;
 
-        if (hover_cmd >= 0 && cmd_buf[i] == hover_cmd) {
-            r = 0xFF; g = 0x80; b = 0x00;
+    if (enhance_mode) {
+        tex_w = HYBRID_W;
+        tex_h = HYBRID_H;
+        for (int i = 0; i < HYBRID_BUFFER_SIZE; i++) {
+            const unsigned char color = hybrid_pixel_buf[i];
+            unsigned char r, g, b;
+            if (color == 0xFF) {
+                r = 0xCC; g = 0xCC; b = 0xCC;
+            } else {
+                r = color_palette[color][0];
+                g = color_palette[color][1];
+                b = color_palette[color][2];
+            }
+            tex_rgb[i*3+0] = r;
+            tex_rgb[i*3+1] = g;
+            tex_rgb[i*3+2] = b;
         }
-
-        tex_rgb[i*3+0] = r;
-        tex_rgb[i*3+1] = g;
-        tex_rgb[i*3+2] = b;
+    } else {
+        tex_w = PIC_W * pic_scale;
+        tex_h = PIC_H * pic_scale;
+        const int npx = tex_w * tex_h;
+        for (int i = 0; i < npx; i++) {
+            unsigned char color = pixel_buf[i];
+            if (color >= AGI_NUM_COLORS) { color = AGI_NUM_COLORS - 1; }
+            unsigned char r = color_palette[color][0];
+            unsigned char g = color_palette[color][1];
+            unsigned char b = color_palette[color][2];
+            if (hover_cmd >= 0 && cmd_buf[i] == hover_cmd) {
+                r = 0xFF; g = 0x80; b = 0x00;
+            }
+            tex_rgb[i*3+0] = r;
+            tex_rgb[i*3+1] = g;
+            tex_rgb[i*3+2] = b;
+        }
     }
 
     if (need_realloc) {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, cw, ch, 0,
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, tex_w, tex_h, 0,
                      GL_RGB, GL_UNSIGNED_BYTE, tex_rgb);
     } else {
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, cw, ch,
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tex_w, tex_h,
                         GL_RGB, GL_UNSIGNED_BYTE, tex_rgb);
     }
 
-    last_pic_scale = pic_scale;
+    last_pic_scale    = pic_scale;
+    last_enhance_mode = enhance_mode;
 }
 
 /* ── Public API ───────────────────────────────────────────────────────── */

@@ -10,7 +10,9 @@ add_executable(agi_up
         agi.c
         agi.h
         render.c
-        render.h)
+        render.h
+        hybrid.c
+        hybrid.h)
 
 target_link_libraries(agi_up
         glfw

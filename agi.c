@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* ── Private globals ──────────────────────────────────────────────────── */
 static int  current_cmd_id = -1;
@@ -22,8 +23,10 @@ static int  pen_size, pen_solid, pen_circle;
 unsigned char *raw_pic_data = nullptr;
 int           raw_pic_len   = 0;
 int           pic_scale = 1;
-int           pixel_buf[PIC_BUFFER_SIZE]; // Stores the pixel colors
-int           cmd_buf[PIC_BUFFER_SIZE]; // Stores the command id used to generate each pixel
+int           pixel_buf[PIC_BUFFER_SIZE];
+int           cmd_buf[PIC_BUFFER_SIZE];
+int           ref_pixel_buf[PIC_BUFFER_SIZE];
+int           ref_cmd_buf[PIC_BUFFER_SIZE];
 PicCmd        cmd_log[MAX_CMDS];
 int           cmd_count = 0;
 
@@ -383,7 +386,9 @@ void first_parse() {
 
     pic_parse(raw_pic_data, raw_pic_len, -1);
 
-    // TODO -- Copy over the ref buffers
+    memcpy(ref_pixel_buf, pixel_buf, sizeof(pixel_buf));
+    memcpy(ref_cmd_buf,   cmd_buf,   sizeof(cmd_buf));
+
 }
 
 void parse_to_step(int n) {

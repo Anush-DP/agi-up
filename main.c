@@ -15,6 +15,8 @@
 #define GL_SILENCE_DEPRECATION
 #include <GLFW/glfw3.h>
 
+#include "hybrid.h"
+
 /* ── Window & display geometry ────────────────────────────────────────── */
 #define WINDOW_WIDTH  1920
 #define WINDOW_HEIGHT 1080
@@ -85,6 +87,17 @@ static void key_callback(GLFWwindow *window, const int key, const int scan_code,
     if (key == GLFW_KEY_H && action == GLFW_PRESS) {
         pic_scale = pic_scale == 1 ? PIC_MAX_SCALE : 1;
         parse_to_step(step_cmd);
+        clear_hover();
+    }
+
+    if (key == GLFW_KEY_E && action == GLFW_PRESS) {
+        if (!enhance_mode) {
+            enhance_mode = true;
+            pic_enhance();
+        } else {
+            enhance_mode = false;
+        }
+
         clear_hover();
     }
 
@@ -323,7 +336,7 @@ int main(const int argc, char **argv) {
 
     GLFWwindow *window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT,
                                           WINDOW_TITLE,
-                                          monitors[monitor_index], NULL);
+                                          monitors[monitor_index], nullptr);
     if (!window) {
         fprintf(stderr, "Failed to create GLFW window\n");
         glfwTerminate();
