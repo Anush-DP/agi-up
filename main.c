@@ -82,6 +82,12 @@ static void key_callback(GLFWwindow *window, const int key, const int scan_code,
         glfwSetWindowShouldClose(window, GLFW_TRUE);
     }
 
+    if (key == GLFW_KEY_H && action == GLFW_PRESS) {
+        pic_scale = pic_scale == 1 ? PIC_MAX_SCALE : 1;
+        parse_to_step(step_cmd);
+        clear_hover();
+    }
+
     if (action == GLFW_PRESS) {
         if (key == GLFW_KEY_RIGHT || key == GLFW_KEY_LEFT) {
             step_dir = (key == GLFW_KEY_RIGHT) ? 1 : -1;

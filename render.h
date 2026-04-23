@@ -27,6 +27,7 @@
 #define HUD_TEXT_MARGIN  8.0f
 
 /* ── Public API ───────────────────────────────────────────────────────── */
+void clear_hover(void);
 void render_init(void);
 void render_pic(int step_cmd, int total_cmds);
 

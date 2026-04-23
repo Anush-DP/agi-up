@@ -17,13 +17,19 @@
 
 /* ── Private state ────────────────────────────────────────────────────── */
 static GLuint        pic_tex;
-static unsigned char tex_rgb[PIC_W * PIC_H * 3];
+static unsigned char tex_rgb[PIC_BUFFER_SIZE * 3];
 
 /* ── Hover state (written by main.c, read by renderer) ───────────────── */
 int  hover_cmd  = -1;
 int  hover_x    = -1;
 int  hover_y    = -1;
 char hover_text[1024] = "";
+
+void clear_hover(void)
+{
+    hover_cmd     = -1;
+    hover_text[0] = '\0';
+}
 
 /* ── Text rendering ───────────────────────────────────────────────────── */
 static void draw_text(float x, float y, float scale, const char *text,
@@ -45,14 +51,10 @@ static void draw_text(float x, float y, float scale, const char *text,
 static void upload_texture(void)
 {
     glBindTexture(GL_TEXTURE_2D, pic_tex);
-    static bool last_vec_mode  = false;
-    static int  last_tex_scale = 0;
-    // TODO
-    // const bool  need_realloc   = (vec_mode != last_vec_mode) ||
-    //                              (!vec_mode && last_tex_scale != pic_scale);
-
-    const int cw  = PIC_W;
-    const int ch  = PIC_H;
+    static int  last_pic_scale = 0;
+    const bool need_realloc = last_pic_scale != pic_scale;
+    const int cw  = PIC_W * pic_scale;
+    const int ch  = PIC_H * pic_scale;
     const int npx = cw * ch;
 
     for (int i = 0; i < npx; i++) {
@@ -66,27 +68,20 @@ static void upload_texture(void)
             r = 0xFF; g = 0x80; b = 0x00;
         }
 
-        // TODO
-        // if (hover_cmd >= 0 && cmd_buf[i] == (int16_t)hover_cmd) {
-        //     r = 0xFF; g = 0x80; b = 0x00;
-        // }
-        // if (debug_angled && angled_buf[i]) {
-        //     r = 0xFF; g = 0x00; b = 0x00;
-        // }
-        // if (debug_angled && startend_buf[i]) {
-        //     r = 0xFF; g = 0x80; b = 0xC0;
-        // }
         tex_rgb[i*3+0] = r;
         tex_rgb[i*3+1] = g;
         tex_rgb[i*3+2] = b;
     }
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, PIC_W, PIC_H, 0,
-                  GL_RGB, GL_UNSIGNED_BYTE, tex_rgb);
+    if (need_realloc) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, cw, ch, 0,
+                     GL_RGB, GL_UNSIGNED_BYTE, tex_rgb);
+    } else {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, cw, ch,
+                        GL_RGB, GL_UNSIGNED_BYTE, tex_rgb);
+    }
 
-    // glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, cw, ch,
-    //                 GL_RGB, GL_UNSIGNED_BYTE, tex_rgb);
-
+    last_pic_scale = pic_scale;
 }
 
 /* ── Public API ───────────────────────────────────────────────────────── */
