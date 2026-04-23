@@ -1,7 +1,9 @@
 main
 .DS_Store
 .claude/
+CLAUDE.md
 .idea/
 build/
 *.zip
 *.bmp
+pics/

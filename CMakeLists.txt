@@ -6,7 +6,11 @@ set(CMAKE_C_STANDARD 23)
 find_package(glfw3 REQUIRED)
 
 add_executable(agi_up
-        main.c)
+        main.c
+        agi.c
+        agi.h
+        render.c
+        render.h)
 
 target_link_libraries(agi_up
         glfw

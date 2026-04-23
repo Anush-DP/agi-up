@@ -6,6 +6,9 @@
  *
  * TODO: usage instructions
  */
+#include "agi.h"
+#include "render.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #define GL_SILENCE_DEPRECATION
@@ -15,6 +18,16 @@
 #define WINDOW_WIDTH  1920
 #define WINDOW_HEIGHT 1080
 #define WINDOW_TITLE  "Sierra AGI Picture Enhancer"
+
+/* ── Step-through state ───────────────────────────────────────────────── */
+static int    total_cmds     = 0;
+static int    step_cmd       = 0;
+static int    step_dir       = 0;
+static double key_press_time = 0.0;
+static double last_step_time = 0.0;
+
+#define STEP_INITIAL_DELAY  0.4
+#define STEP_REPEAT_SEC     (1.0 / 60.0)
 
 
 void parse_args(const int argc, char **argv, int *monitor_index, const char **pic_path, const int monitor_count) {
@@ -77,7 +90,32 @@ void initialize_gl_context(void) {
     glLoadIdentity();
 }
 
-int main(int argc, char **argv) {
+long load_image_data_from_file(const char *pic_path) {
+    FILE *file = fopen(pic_path, "rb");
+
+    if (!file) {
+        fprintf(stderr, "Cannot open %s\n", pic_path);
+        exit(EXIT_FAILURE);
+    }
+
+    fseek(file, 0, SEEK_END);
+    const long size = ftell(file);
+    rewind(file);
+    raw_pic_data = malloc((size_t)size);
+
+    if (raw_pic_data == NULL) {
+        fclose(file);
+        fprintf(stderr, "Out of memory\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fread(raw_pic_data, 1, (size_t)size, file);
+    raw_pic_len    = (int)size;
+    fclose(file);
+    return size;
+}
+
+int main(const int argc, char **argv) {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialise GLFW\n");
         return EXIT_FAILURE;
@@ -105,9 +143,31 @@ int main(int argc, char **argv) {
 
     initialize_glfw_context(window);
     initialize_gl_context();
+    render_init();
+
+    load_image_data_from_file(pic_path);
+
+    first_parse();
+    total_cmds = cmd_count;
+    step_cmd   = 0;
 
     while (!glfwWindowShouldClose(window)) {
-        double now = glfwGetTime();
+        if (step_dir != 0) {
+            const double now = glfwGetTime();
+            if (now - key_press_time >= STEP_INITIAL_DELAY &&
+                now - last_step_time >= STEP_REPEAT_SEC) {
+                const int next = step_cmd + step_dir;
+
+                if (next >= 0 && next <= total_cmds) {
+                    step_cmd = next;
+                    parse_to_step(step_cmd);
+                }
+
+                last_step_time = now;
+            }
+        }
+
+        render_pic(step_cmd, total_cmds);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
