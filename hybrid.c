@@ -33,6 +33,21 @@ static void set_connect(Anchor *anchor, int dir)
     }
 }
 
+static bool get_connect(const Anchor *anchor, int dir)
+{
+    switch (dir) {
+        case 0: return anchor->connects_n;
+        case 1: return anchor->connects_ne;
+        case 2: return anchor->connects_e;
+        case 3: return anchor->connects_se;
+        case 4: return anchor->connects_s;
+        case 5: return anchor->connects_sw;
+        case 6: return anchor->connects_w;
+        case 7: return anchor->connects_nw;
+        default: return false;
+    }
+}
+
 
 /* TODO - rewrite this comment
  * Project cell (cx,cy) onto segment (sx,sy)→(ex,ey), all in hybrid space.
@@ -276,12 +291,13 @@ static void connect_line_anchors(void) {
                 }
 
                 /*
-                 * Fallback: this endpoint has no forward same-colour neighbour
-                 * to connect to.  Connect in the travel direction (opposite to
-                 * the single same-command neighbour behind us) regardless of
-                 * the destination anchor's colour.
+                 * Fallback: connect in travel direction (opposite the single
+                 * same-command neighbour behind us).
+                 * Off-canvas: always extend to the canvas boundary.
+                 * In-bounds:  only connect when no forward same-colour neighbour
+                 *             was found AND the destination is a line cell.
                  */
-                if (!has_forward_connect && same_cmd_count == 1) {
+                if (same_cmd_count == 1) {
                     for (int dir = 0; dir < 8; dir++) {
                         const int nx = x + dir_dx[dir];
                         const int ny = y + dir_dy[dir];
@@ -292,9 +308,11 @@ static void connect_line_anchors(void) {
                         const int fwd = (dir + 4) % 8;
                         const int fx  = x + dir_dx[fwd];
                         const int fy  = y + dir_dy[fwd];
-                        if ((unsigned)fx < (unsigned)PIC_W &&
-                            (unsigned)fy < (unsigned)PIC_H &&
-                            is_line_cmd(ref_cmd_buf[fy * PIC_W + fx])) {
+                        const bool fwd_oob = (unsigned)fx >= (unsigned)PIC_W ||
+                                             (unsigned)fy >= (unsigned)PIC_H;
+                        if (fwd_oob) {
+                            set_connect(anchor, fwd);
+                        } else if (!has_forward_connect && is_line_cmd(ref_cmd_buf[fy * PIC_W + fx])) {
                             set_connect(anchor, fwd);
                         }
                         break;
@@ -396,6 +414,32 @@ static void hybrid_render(void)
         }
     }
 
+    /* Canvas-edge connections: draw from border anchors to the nearest boundary pixel. */
+    for (int y = 0; y < PIC_H; y++) {
+        for (int x = 0; x < PIC_W; x++) {
+            const int           idx      = y * PIC_W + x;
+            const Anchor       *anchor   = &anchors[idx];
+            const unsigned char color    = ref_pixel_buf[idx];
+            const int           cmd_id   = ref_cmd_buf[idx];
+            const unsigned char pix_type = (cmd_id < 0)                     ? 0
+                                         : (cmd_log[cmd_id].opcode == 0xF8) ? 2
+                                                                             : 1;
+            for (int dir = 0; dir < 8; dir++) {
+                const int nx = x + dir_dx[dir];
+                const int ny = y + dir_dy[dir];
+                if ((unsigned)nx < (unsigned)PIC_W && (unsigned)ny < (unsigned)PIC_H) continue;
+                if (!get_connect(anchor, dir)) continue;
+                const int bx = dir_dx[dir] > 0 ? HYBRID_W - 1
+                             : dir_dx[dir] < 0 ? 0
+                             : anchor->screen_x;
+                const int by = dir_dy[dir] > 0 ? HYBRID_H - 1
+                             : dir_dy[dir] < 0 ? 0
+                             : anchor->screen_y;
+                draw_line(anchor->screen_x, anchor->screen_y, bx, by, color, color, pix_type);
+            }
+        }
+    }
+
     for (int idx = 0; idx < PIC_W * PIC_H; idx++) {
         const int sx = anchors[idx].screen_x;
         const int sy = anchors[idx].screen_y;
@@ -417,8 +461,8 @@ static void hybrid_render(void)
  * Pass B: calculate connections for fill/background anchors.
  *
  * Cardinal connections: allowed unless the neighbour is a line cell.
- * Diagonal connections: additionally suppressed when both flanking cardinal
- * neighbours are line cells (their diagonal would visually cross ours).
+ * Diagonal connections: additionally suppressed when either flanking cardinal
+ * neighbour is a line cell (the diagonal would visually cross it).
  */
 static void connect_fill_anchors(void)
 {
@@ -434,7 +478,7 @@ static void connect_fill_anchors(void)
     for (int y = 0; y < PIC_H; y++) {
         for (int x = 0; x < PIC_W; x++) {
             const int     idx    = y * PIC_W + x;
-            const int16_t cmd_id = ref_cmd_buf[idx];
+            const int cmd_id = ref_cmd_buf[idx];
             if (is_line_cmd(cmd_id)) continue;
 
             const unsigned char color  = ref_pixel_buf[idx];
@@ -443,11 +487,13 @@ static void connect_fill_anchors(void)
             for (int dir = 0; dir < 8; dir += 2) {
                 const int nx = x + dir_dx[dir];
                 const int ny = y + dir_dy[dir];
-                if ((unsigned)nx >= (unsigned)PIC_W ||
-                    (unsigned)ny >= (unsigned)PIC_H) continue;
-                const int nidx = ny * PIC_W + nx;
-                if (ref_pixel_buf[nidx] != color) continue;
-                if (is_line_cmd(ref_cmd_buf[nidx])) continue;
+                const bool oob = (unsigned)nx >= (unsigned)PIC_W ||
+                                 (unsigned)ny >= (unsigned)PIC_H;
+                if (!oob) {
+                    const int nidx = ny * PIC_W + nx;
+                    if (ref_pixel_buf[nidx] != color) continue;
+                    if (is_line_cmd(ref_cmd_buf[nidx])) continue;
+                }
                 set_connect(anchor, dir);
             }
 
@@ -464,11 +510,13 @@ static void connect_fill_anchors(void)
                 const int ay = y + dir_dy[diag_card_a[d]];
                 const int bx = x + dir_dx[diag_card_b[d]];
                 const int by = y + dir_dy[diag_card_b[d]];
-                if ((unsigned)ax < (unsigned)PIC_W && (unsigned)ay < (unsigned)PIC_H &&
-                    (unsigned)bx < (unsigned)PIC_W && (unsigned)by < (unsigned)PIC_H) {
-                    if (is_line_cmd(ref_cmd_buf[ay * PIC_W + ax]) &&
-                        is_line_cmd(ref_cmd_buf[by * PIC_W + bx])) continue;
-                }
+                const bool a_is_line = (unsigned)ax < (unsigned)PIC_W &&
+                                       (unsigned)ay < (unsigned)PIC_H &&
+                                       is_line_cmd(ref_cmd_buf[ay * PIC_W + ax]);
+                const bool b_is_line = (unsigned)bx < (unsigned)PIC_W &&
+                                       (unsigned)by < (unsigned)PIC_H &&
+                                       is_line_cmd(ref_cmd_buf[by * PIC_W + bx]);
+                if (a_is_line || b_is_line) continue;
 
                 set_connect(anchor, diag);
             }
