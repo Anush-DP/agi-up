@@ -9,6 +9,7 @@
 #include "agi.h"
 #include "render.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #define GL_SILENCE_DEPRECATION
@@ -20,9 +21,9 @@
 #define WINDOW_TITLE  "Sierra AGI Picture Enhancer"
 
 /* ── Step-through state ───────────────────────────────────────────────── */
-static int    total_cmds     = 0;
-static int    step_cmd       = 0;
-static int    step_dir       = 0;
+static int total_cmds = 0;
+static int step_cmd = 0;
+static int step_dir = 0;
 static double key_press_time = 0.0;
 static double last_step_time = 0.0;
 
@@ -64,9 +65,8 @@ void parse_next(void) {
     }
 }
 
-static void framebuffer_size_callback(GLFWwindow *window, int width, int height)
-{
-    (void)window;
+static void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
+    (void) window;
     glViewport(0, 0, width, height);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -84,7 +84,7 @@ static void key_callback(GLFWwindow *window, const int key, const int scan_code,
 
     if (action == GLFW_PRESS) {
         if (key == GLFW_KEY_RIGHT || key == GLFW_KEY_LEFT) {
-            step_dir       = (key == GLFW_KEY_RIGHT) ? 1 : -1;
+            step_dir = (key == GLFW_KEY_RIGHT) ? 1 : -1;
             key_press_time = glfwGetTime();
             last_step_time = key_press_time;
 
@@ -96,12 +96,173 @@ static void key_callback(GLFWwindow *window, const int key, const int scan_code,
     }
 }
 
+/* ── Cursor callback ──────────────────────────────────────────────────── */
+static const char *color_name(int c) {
+    static const char *names[16] = {
+        "black", "blue", "green", "cyan", "red", "magenta", "brown", "lt grey",
+        "dk grey", "lt blue", "lt green", "lt cyan", "lt red", "lt magenta", "yellow", "white"
+    };
+    return (c >= 0 && c < 16) ? names[c] : "?";
+}
+
+static const char *opcode_name(unsigned char op) {
+    switch (op) {
+        case 0xF0: return "set color";
+        case 0xF1: return "disable draw";
+        case 0xF2: return "set pri color";
+        case 0xF3: return "disable pri";
+        case 0xF4: return "Y corner";
+        case 0xF5: return "X corner";
+        case 0xF6: return "abs line";
+        case 0xF7: return "rel line";
+        case 0xF8: return "fill";
+        case 0xF9: return "set pen";
+        case 0xFA: return "pen plot";
+        default: return "?";
+    }
+}
+
+static void emit(char *out, const int outsz, int *pos, const char *fmt, ...) {
+    if (*pos < outsz - 1) {
+        va_list args;
+        va_start(args, fmt);
+        *pos += vsnprintf(out + *pos, (size_t)(outsz - *pos), fmt, args);
+        va_end(args);
+    }
+}
+
+static void format_cmd_args(char *out, const int outsz, const int cmd_id) {
+    PicCmd *cmd = &cmd_log[cmd_id];
+    const unsigned char *a = raw_pic_data + cmd->arg_offset;
+    const int len = cmd->arg_len;
+    int pos = 0;
+
+    switch (cmd->opcode) {
+        case 0xF0:
+        case 0xF2:
+            if (len >= 1) { emit(out, outsz, &pos, "color=%d (%s)", a[0], color_name(a[0])); }
+            break;
+
+        case 0xF1:
+        case 0xF3:
+            break;
+
+        case 0xF4:
+        case 0xF5:
+            if (len >= 2) {
+                emit(out, outsz, &pos, "start=(%d,%d)", a[0], a[1]);
+                int toggle = 0;
+                for (int k = 2; k < len; k++, toggle ^= 1) {
+                    const int is_x = (cmd->opcode == 0xF4) ? toggle : !toggle;
+                    emit(out, outsz, &pos, "  %s=%d", is_x ? "x" : "y", a[k]);
+                }
+            }
+            break;
+
+        case 0xF6:
+            for (int k = 0; k + 1 < len; k += 2) {
+                if (k > 0) { emit(out, outsz, &pos, " ->"); }
+                emit(out, outsz, &pos, " (%d,%d)", a[k], a[k + 1]);
+            }
+            break;
+
+        case 0xF7:
+            if (len >= 2) {
+                emit(out, outsz, &pos, "start=(%d,%d)", a[0], a[1]);
+                for (int k = 2; k < len; k++) {
+                    int dx = (a[k] >> 4) & 7;
+                    if (a[k] & DISP_X_SIGN) { dx = -dx; }
+                    int dy = a[k] & 7;
+                    if (a[k] & DISP_Y_SIGN) { dy = -dy; }
+                    emit(out, outsz, &pos, "  (%+d,%+d)", dx, dy);
+                }
+            }
+            break;
+
+        case 0xF8:
+            for (int k = 0; k + 1 < len; k += 2) {
+                emit(out, outsz, &pos, "%s(%d,%d)", k ? "  " : "", a[k], a[k + 1]);
+            }
+            break;
+
+        case 0xF9:
+            if (len >= 1) {
+                emit(out, outsz, &pos, "size=%d  %s  %s",
+                     a[0] & PEN_FLAG_SIZE,
+                     (a[0] & PEN_FLAG_RECT) ? "rect" : "circle",
+                     (a[0] & PEN_FLAG_SPLATTER) ? "splatter" : "solid");
+            }
+            break;
+
+        case 0xFA: {
+            int splatter = 0;
+            for (int k = cmd_id - 1; k >= 0; k--) {
+                if (cmd_log[k].opcode == 0xF9 && cmd_log[k].arg_len >= 1) {
+                    splatter = (raw_pic_data[cmd_log[k].arg_offset] & PEN_FLAG_SPLATTER) != 0;
+                    break;
+                }
+            }
+            const int step = splatter ? 3 : 2;
+            for (int k = 0; k + 1 < len; k += step) {
+                if (splatter) {
+                    emit(out, outsz, &pos, "%stex=%d (%d,%d)", k ? "  " : "", a[k], a[k + 1], a[k + 2]);
+                } else { emit(out, outsz, &pos, "%s(%d,%d)", k ? "  " : "", a[k], a[k + 1]); }
+            }
+            break;
+        }
+
+        default: {
+            for (int k = 0; k < len; k++) { emit(out, outsz, &pos, " %02X", a[k]); }
+            break;
+        }
+    }
+}
+
+void cursor_pos_callback(GLFWwindow *window, double x_pos, double y_pos) {
+    (void) window;
+
+    const int prev_hover_cmd = hover_cmd;
+    const int cw = PIC_W * pic_scale, ch = PIC_H * pic_scale;
+    const int ax = (int) ((x_pos - DRAW_OX) / (PIC_PX_W / (double) pic_scale));
+    const int ay = (int) ((y_pos - DRAW_OY) / (PIC_PX_H / (double) pic_scale));
+
+    if (ax >= 0 && ax < cw && ay >= 0 && ay < ch) {
+        hover_cmd = cmd_buf[ay * cw + ax];
+        hover_x = ax / pic_scale;
+        hover_y = ay / pic_scale;
+    } else {
+        hover_cmd = -1;
+        hover_x = -1;
+        hover_y = -1;
+    }
+
+    if (hover_cmd == prev_hover_cmd) return;
+
+    if (hover_cmd < 0 || !raw_pic_data) {
+        hover_text[0] = '\0';
+        return;
+    }
+
+    const PicCmd *cmd = &cmd_log[hover_cmd];
+    char args[512];
+    args[0] = '\0';
+    format_cmd_args(args, sizeof(args), hover_cmd);
+
+    char nbr_str[128];
+
+
+    snprintf(hover_text, sizeof(hover_text),
+             "cmd %d  F%X (%s)  @%d    %s    %s",
+             cmd->id, cmd->opcode & 0x0F, opcode_name(cmd->opcode),
+             cmd->file_offset, args, nbr_str);
+}
+
 void initialize_glfw_context(GLFWwindow *window) {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetKeyCallback(window, key_callback);
-    //glfwSetCursorPosCallback(window, cursor_pos_callback); // TODO
+    glfwSetCursorPosCallback(window, cursor_pos_callback);
 }
 
 void initialize_gl_context(void) {
@@ -123,7 +284,7 @@ long load_image_data_from_file(const char *pic_path) {
     fseek(file, 0, SEEK_END);
     const long size = ftell(file);
     rewind(file);
-    raw_pic_data = malloc((size_t)size);
+    raw_pic_data = malloc((size_t) size);
 
     if (raw_pic_data == NULL) {
         fclose(file);
@@ -131,8 +292,8 @@ long load_image_data_from_file(const char *pic_path) {
         exit(EXIT_FAILURE);
     }
 
-    fread(raw_pic_data, 1, (size_t)size, file);
-    raw_pic_len    = (int)size;
+    fread(raw_pic_data, 1, (size_t) size, file);
+    raw_pic_len = (int) size;
     fclose(file);
     return size;
 }
@@ -171,14 +332,13 @@ int main(const int argc, char **argv) {
 
     first_parse();
     total_cmds = cmd_count;
-    step_cmd   = 0;
+    step_cmd = 0;
 
     while (!glfwWindowShouldClose(window)) {
         if (step_dir != 0) {
             const double now = glfwGetTime();
             if (now - key_press_time >= STEP_INITIAL_DELAY &&
                 now - last_step_time >= STEP_REPEAT_SEC) {
-
                 parse_next();
                 last_step_time = now;
             }

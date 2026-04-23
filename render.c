@@ -8,13 +8,38 @@
 #include "agi.h"
 
 #define GL_SILENCE_DEPRECATION
+#include <stdio.h>
 #include <GLFW/glfw3.h>
+
+#define STB_EASY_FONT_IMPLEMENTATION
+#include "libs/stb_easy_font.h"
 
 
 /* ── Private state ────────────────────────────────────────────────────── */
 static GLuint        pic_tex;
 static unsigned char tex_rgb[PIC_W * PIC_H * 3];
 
+/* ── Hover state (written by main.c, read by renderer) ───────────────── */
+int  hover_cmd  = -1;
+int  hover_x    = -1;
+int  hover_y    = -1;
+char hover_text[1024] = "";
+
+/* ── Text rendering ───────────────────────────────────────────────────── */
+static void draw_text(float x, float y, float scale, const char *text,
+                      float r, float g, float b) {
+    static char buf[99999];
+    int quads = stb_easy_font_print(0, 0, (char *)text, NULL, buf, sizeof(buf));
+    glColor3f(r, g, b);
+    glPushMatrix();
+    glTranslatef(x, y, 0.0f);
+    glScalef(scale, scale, 1.0f);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(2, GL_FLOAT, 16, buf);
+    glDrawArrays(GL_QUADS, 0, quads * 4);
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glPopMatrix();
+}
 
 /* ── Texture upload ───────────────────────────────────────────────────── */
 static void upload_texture(void)
@@ -70,6 +95,30 @@ void render_init(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
 
+void render_hud(const int step_cmd, const int total_cmds) {
+    const float TEXT_SCALE = HUD_TEXT_SCALE;
+    const float TEXT_Y_TOP = (DRAW_OY - HUD_TEXT_HEIGHT * TEXT_SCALE) * 0.5f;
+    const float TEXT_Y_BOT = DRAW_OY + DRAW_H + (DRAW_OY - HUD_TEXT_HEIGHT * TEXT_SCALE) * 0.5f;
+
+    /* Step counter — top-right */
+    char step[32];
+    snprintf(step, sizeof(step), "cmd %d / %d", step_cmd, total_cmds);
+    float text_w = stb_easy_font_width(step) * TEXT_SCALE;
+    draw_text(WINDOW_WIDTH - text_w - HUD_TEXT_MARGIN, TEXT_Y_TOP, TEXT_SCALE, step, 1.0f, 1.0f, 1.0f);
+
+    /* Pixel coordinates — top-left */
+    if (hover_x >= 0) {
+        char coords[32];
+        snprintf(coords, sizeof(coords), "%d, %d", hover_x, hover_y);
+        draw_text(HUD_TEXT_MARGIN, TEXT_Y_TOP, TEXT_SCALE, coords, 1.0f, 1.0f, 1.0f);
+    }
+
+    /* Command info — bottom strip */
+    if (hover_text[0] != '\0') {
+        draw_text(HUD_TEXT_MARGIN, TEXT_Y_BOT, TEXT_SCALE, hover_text, 1.0f, 1.0f, 1.0f);
+    }
+}
+
 void render_pic(int step_cmd, int total_cmds) {
     upload_texture();
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -86,4 +135,6 @@ void render_pic(int step_cmd, int total_cmds) {
         glTexCoord2f(0.0f, 1.0f); glVertex2f(DRAW_OX,          DRAW_OY + DRAW_H);
     glEnd();
     glDisable(GL_TEXTURE_2D);
+
+    render_hud(step_cmd, total_cmds);
 }
