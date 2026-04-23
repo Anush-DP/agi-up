@@ -55,6 +55,15 @@ void parse_args(const int argc, char **argv, int *monitor_index, const char **pi
     }
 }
 
+void parse_next(void) {
+    const int next = step_cmd + step_dir;
+
+    if (next >= 0 && next <= total_cmds) {
+        step_cmd = next;
+        parse_to_step(step_cmd);
+    }
+}
+
 static void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 {
     (void)window;
@@ -71,6 +80,19 @@ static void key_callback(GLFWwindow *window, const int key, const int scan_code,
 
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
+
+    if (action == GLFW_PRESS) {
+        if (key == GLFW_KEY_RIGHT || key == GLFW_KEY_LEFT) {
+            step_dir       = (key == GLFW_KEY_RIGHT) ? 1 : -1;
+            key_press_time = glfwGetTime();
+            last_step_time = key_press_time;
+
+            parse_next(); // Update once on key down. Repeat handled in main()
+        }
+    } else if (action == GLFW_RELEASE) {
+        if (key == GLFW_KEY_RIGHT || key == GLFW_KEY_LEFT)
+            step_dir = 0;
     }
 }
 
@@ -156,13 +178,8 @@ int main(const int argc, char **argv) {
             const double now = glfwGetTime();
             if (now - key_press_time >= STEP_INITIAL_DELAY &&
                 now - last_step_time >= STEP_REPEAT_SEC) {
-                const int next = step_cmd + step_dir;
 
-                if (next >= 0 && next <= total_cmds) {
-                    step_cmd = next;
-                    parse_to_step(step_cmd);
-                }
-
+                parse_next();
                 last_step_time = now;
             }
         }
