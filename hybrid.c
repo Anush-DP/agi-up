@@ -318,6 +318,22 @@ static void connect_line_anchors(void) {
                         break;
                     }
                 }
+
+                /* Last resort: if still no forward connection, connect to any
+                 * neighbouring line anchor regardless of colour or command. */
+                if (!has_forward_connect) {
+                    for (int dir = 0; dir < 8; dir++) {
+                        const int nx = x + dir_dx[dir];
+                        const int ny = y + dir_dy[dir];
+                        if ((unsigned)nx >= (unsigned)PIC_W ||
+                            (unsigned)ny >= (unsigned)PIC_H) continue;
+                        const int nidx = ny * PIC_W + nx;
+                        if (!is_line_cmd(ref_cmd_buf[nidx])) continue;
+                        if (ref_cmd_buf[nidx] == cmd_id) continue;
+                        set_connect(anchor, dir);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -370,10 +386,10 @@ static void hybrid_render(void)
             const int           idx    = y * PIC_W + x;
             const Anchor       *anchor = &anchors[idx];
             const unsigned char color  = ref_pixel_buf[idx];
-            const int       cmd_id = ref_cmd_buf[idx];
-            const unsigned char pix_type = (cmd_id < 0)                        ? 0
-                                         : (cmd_log[cmd_id].opcode == 0xF8)    ? 2
-                                                                                : 1;
+            const int           cmd_id = ref_cmd_buf[idx];
+            const unsigned char pix_type = (cmd_id < 0)                     ? 0
+                                         : (cmd_log[cmd_id].opcode == 0xF8) ? 2
+                                                                             : 1;
 
             if (x + 1 < PIC_W) {
                 const int    nidx = idx + 1;
