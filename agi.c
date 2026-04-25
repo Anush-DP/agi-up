@@ -386,6 +386,8 @@ void first_parse() {
 
     pic_parse(raw_pic_data, raw_pic_len, -1);
 
+    // TODO - bug where enhance doesn't work properly when image is half rendered
+    // probably not with these buffers pre-se
     memcpy(ref_pixel_buf, pixel_buf, sizeof(pixel_buf));
     memcpy(ref_cmd_buf,   cmd_buf,   sizeof(cmd_buf));
 

@@ -227,16 +227,25 @@ static void connect_line_anchors(void) {
 
             int same_cmd_count = 0;
 
-            // Connect to all same command neighbours
+            // Connect to all same-colour neighbours
             for (int dir = 0; dir < 8; dir++) {
                 const int nx = x + dir_dx[dir];
                 const int ny = y + dir_dy[dir];
                 if ((unsigned)nx >= (unsigned)PIC_W ||
                     (unsigned)ny >= (unsigned)PIC_H) continue;
-                if (ref_cmd_buf[ny * PIC_W + nx] == cmd_id) {
-                    set_connect(anchor, dir);
-                    same_cmd_count++;
-                }
+                const int nidx = ny * PIC_W + nx;
+                // if (ref_pixel_buf[nidx] == color && is_line_cmd(ref_cmd_buf[nidx])) { // TODO - should we connect only to other lines?
+                //     set_connect(anchor, dir);
+                //     if (ref_cmd_buf[nidx] == cmd_id) { same_cmd_count++; }
+                // }
+                // if (ref_pixel_buf[nidx] == color) { // TODO - should we connect only to other lines?
+                //     set_connect(anchor, dir);
+                //     if (ref_cmd_buf[nidx] == cmd_id) { same_cmd_count++; }
+                // }
+                // if (ref_cmd_buf[nidx] == cmd_id) {
+                //     set_connect(anchor, dir);
+                //     same_cmd_count++;
+                // }
             }
 
             if (same_cmd_count >= 2) {
@@ -258,7 +267,7 @@ static void connect_line_anchors(void) {
                     if (ref_pixel_buf[nidx] != color) continue;
                     const int cmd_n = ref_cmd_buf[nidx];
 
-                    //if (cmd_n == cmd_id) continue; // TODO is this what we want?
+                    if (cmd_n == cmd_id) continue;
 
                     const int  opp     = (dir + 4) % 8;
                     const int  ox      = x + dir_dx[opp];
@@ -291,13 +300,12 @@ static void connect_line_anchors(void) {
                 }
 
                 /*
-                 * Fallback: connect in travel direction (opposite the single
-                 * same-command neighbour behind us).
-                 * Off-canvas: always extend to the canvas boundary.
-                 * In-bounds:  only connect when no forward same-colour neighbour
-                 *             was found AND the destination is a line cell.
+                 * Fallback: this endpoint has no forward same-colour neighbour
+                 * to connect to.  Connect in the travel direction (opposite to
+                 * the single same-command neighbour behind us) regardless of
+                 * the destination anchor's colour.
                  */
-                if (same_cmd_count == 1) {
+                if (!has_forward_connect && same_cmd_count == 1) {
                     for (int dir = 0; dir < 8; dir++) {
                         const int nx = x + dir_dx[dir];
                         const int ny = y + dir_dy[dir];
@@ -308,29 +316,11 @@ static void connect_line_anchors(void) {
                         const int fwd = (dir + 4) % 8;
                         const int fx  = x + dir_dx[fwd];
                         const int fy  = y + dir_dy[fwd];
-                        const bool fwd_oob = (unsigned)fx >= (unsigned)PIC_W ||
-                                             (unsigned)fy >= (unsigned)PIC_H;
-                        if (fwd_oob) {
-                            set_connect(anchor, fwd);
-                        } else if (!has_forward_connect && is_line_cmd(ref_cmd_buf[fy * PIC_W + fx])) {
+                        if ((unsigned)fx < (unsigned)PIC_W &&
+                            (unsigned)fy < (unsigned)PIC_H &&
+                            is_line_cmd(ref_cmd_buf[fy * PIC_W + fx])) {
                             set_connect(anchor, fwd);
                         }
-                        break;
-                    }
-                }
-
-                /* Last resort: if still no forward connection, connect to any
-                 * neighbouring line anchor regardless of colour or command. */
-                if (!has_forward_connect) {
-                    for (int dir = 0; dir < 8; dir++) {
-                        const int nx = x + dir_dx[dir];
-                        const int ny = y + dir_dy[dir];
-                        if ((unsigned)nx >= (unsigned)PIC_W ||
-                            (unsigned)ny >= (unsigned)PIC_H) continue;
-                        const int nidx = ny * PIC_W + nx;
-                        if (!is_line_cmd(ref_cmd_buf[nidx])) continue;
-                        if (ref_cmd_buf[nidx] == cmd_id) continue;
-                        set_connect(anchor, dir);
                         break;
                     }
                 }
@@ -530,7 +520,7 @@ static void connect_fill_anchors(void)
                     (unsigned)bx < (unsigned)PIC_W && (unsigned)by < (unsigned)PIC_H) {
                     if (is_line_cmd(ref_cmd_buf[ay * PIC_W + ax]) &&
                         is_line_cmd(ref_cmd_buf[by * PIC_W + bx])) continue;
-                    }
+                }
 
                 set_connect(anchor, diag);
             }
@@ -538,7 +528,181 @@ static void connect_fill_anchors(void)
     }
 }
 
-void pic_enhance(void) {
+/* ── Image enhancement passes ────────────────────────────────────────────── */
+
+/* Returns true if a pixel of the given type qualifies as a source for mode. */
+static bool enhance_type_eligible(const unsigned char pix_type, const int mode) {
+    if (mode == 1) { return pix_type == 1; }           /* lines only */
+    if (mode == 2) { return pix_type == 0 || pix_type == 2; } /* fill / no-cmd */
+    return true;                                        /* mode 0: all */
+}
+
+/* Determine the propagated type when a pixel is newly coloured.
+ * For a fixed mode the type is unambiguous; for mode 0 (all) we use
+ * whichever source type (line vs fill/none) contributed more neighbours. */
+static unsigned char enhance_result_type(const int mode,
+                                         const int line_count,
+                                         const int fill_count) {
+    if (mode == 1) { return 1; }
+    if (mode == 2) { return 2; }
+    return (line_count >= fill_count) ? 1 : 2;
+}
+
+/*
+ * Run one iteration of the enhance kernel over vec_buf.
+ *
+ * mode 0 (','): all coloured pixels are eligible sources.
+ * mode 1 ('.'): only pixels written by line commands are eligible.
+ * mode 2 ('/'): only pixels written by fill or no-command are eligible.
+ *
+ * A snapshot of both hybrid_pixel_buf and hybrid_cmd_type_buf is taken first so all
+ * reads see the pre-iteration state (simultaneous update).
+ */
+void enhance(const int mode) {
+    static unsigned char src[HYBRID_BUFFER_SIZE];
+    static unsigned char src_type[HYBRID_BUFFER_SIZE];
+    memcpy(src,      hybrid_pixel_buf,    sizeof(hybrid_pixel_buf));
+    memcpy(src_type, hybrid_cmd_type_buf, sizeof(hybrid_cmd_type_buf));
+
+    for (int y = 0; y < HYBRID_H; y++) {
+        for (int x = 0; x < HYBRID_W; x++) {
+            const bool is_background   = (src[y * HYBRID_W + x] == 0xFF);
+            const bool is_fill_pixel   = (src_type[y * HYBRID_W + x] == 2);
+            const bool overrideable    = (mode == 1 && is_fill_pixel);
+            if (!is_background && !overrideable) continue;
+
+            /* Count line-command neighbours unconditionally to decide
+             * whether fill votes should be suppressed. */
+            int line_neighbours = 0;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (!dx && !dy) continue;
+                    const int nx = x + dx, ny = y + dy;
+                    if ((unsigned)nx >= (unsigned)HYBRID_W ||
+                        (unsigned)ny >= (unsigned)HYBRID_H) continue;
+                    const unsigned char nc = src[ny * HYBRID_W + nx];
+                    if (nc >= 16) continue;
+                    if (src_type[ny * HYBRID_W + nx] == 1) line_neighbours++;
+                }
+            }
+            const bool suppress_fill = (line_neighbours >= 3);
+
+            int count[16] = {0};
+            int line_count = 0, fill_count = 0;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (!dx && !dy) continue;
+                    const int nx = x + dx, ny = y + dy;
+                    if ((unsigned)nx >= (unsigned)HYBRID_W ||
+                        (unsigned)ny >= (unsigned)HYBRID_H) continue;
+                    const unsigned char nc = src[ny * HYBRID_W + nx];
+                    if (nc >= 16) continue;
+                    const unsigned char nt = src_type[ny * HYBRID_W + nx];
+                    if (suppress_fill && nt != 1) continue;
+                    if (!enhance_type_eligible(nt, mode)) continue;
+                    count[nc]++;
+                    if (nt == 1) { line_count++; } else { fill_count++; }
+                }
+            }
+
+            /* Collect all colours that share the highest count.
+             * Mode 1 (line-only) uses ≥2 so single-pixel 45° diagonals are
+             * enhanced; all other modes require the stricter ≥3 threshold. */
+            const int min_votes = (mode == 1) ? 1 : 2;
+            int best_count = min_votes;
+            int tied[16];
+            int ntied = 0;
+            for (int c = 0; c < 16; c++) {
+                if (count[c] > best_count) {
+                    best_count = count[c];
+                    ntied = 0;
+                    tied[ntied++] = c;
+                } else if (count[c] == best_count && best_count > min_votes) {
+                    tied[ntied++] = c;
+                }
+            }
+
+            unsigned char result_color = 0xFF;
+            if (ntied == 1) {
+                result_color = (unsigned char)tied[0];
+            } else if (ntied > 1) {
+                /* Tie: average the RGB values of the tied colours and pick
+                 * the palette entry nearest to that average. */
+                int sum_r = 0, sum_g = 0, sum_b = 0;
+                for (int k = 0; k < ntied; k++) {
+                    sum_r += color_palette[tied[k]][0];
+                    sum_g += color_palette[tied[k]][1];
+                    sum_b += color_palette[tied[k]][2];
+                }
+                const int avg_r = sum_r / ntied;
+                const int avg_g = sum_g / ntied;
+                const int avg_b = sum_b / ntied;
+                int nearest = 0, nearest_dist2 = 0x7fffffff;
+                for (int c = 0; c < 16; c++) {
+                    const int dr = avg_r - (int)color_palette[c][0];
+                    const int dg = avg_g - (int)color_palette[c][1];
+                    const int db = avg_b - (int)color_palette[c][2];
+                    const int dist2 = dr*dr + dg*dg + db*db;
+                    if (dist2 < nearest_dist2) {
+                        nearest = c;
+                        nearest_dist2 = dist2;
+                    }
+                }
+                result_color = (unsigned char)nearest;
+            }
+
+            if (result_color != 0xFF) {
+                const int pixel = y * HYBRID_W + x;
+                hybrid_pixel_buf[pixel]          = result_color;
+                hybrid_cmd_type_buf[pixel] = enhance_result_type(mode, line_count, fill_count);
+            }
+        }
+    }
+
+    /* Isolated-pixel pass: any eligible coloured pixel with no same-colour
+     * eligible neighbour floods its colour into all surrounding background pixels. */
+    for (int y = 0; y < HYBRID_H; y++) {
+        for (int x = 0; x < HYBRID_W; x++) {
+            const unsigned char colour   = src[y * HYBRID_W + x];
+            const unsigned char pix_type = src_type[y * HYBRID_W + x];
+            if (colour >= 16) continue;
+            if (!enhance_type_eligible(pix_type, mode)) continue;
+
+            bool has_same_neighbour = false;
+            for (int dy = -1; dy <= 1 && !has_same_neighbour; dy++) {
+                for (int dx = -1; dx <= 1 && !has_same_neighbour; dx++) {
+                    if (!dx && !dy) continue;
+                    const int nx = x + dx, ny = y + dy;
+                    if ((unsigned)nx >= (unsigned)HYBRID_W ||
+                        (unsigned)ny >= (unsigned)HYBRID_H) continue;
+                    if (src[ny * HYBRID_W + nx] == colour &&
+                        enhance_type_eligible(src_type[ny * HYBRID_W + nx], mode)) {
+                        has_same_neighbour = true;
+                    }
+                }
+            }
+
+            if (has_same_neighbour) continue;
+
+            /* Isolated pixel — paint all background neighbours. */
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (!dx && !dy) continue;
+                    const int nx = x + dx, ny = y + dy;
+                    if ((unsigned)nx >= (unsigned)HYBRID_W ||
+                        (unsigned)ny >= (unsigned)HYBRID_H) continue;
+                    if (src[ny * HYBRID_W + nx] == 0xFF) {
+                        const int pixel = ny * HYBRID_W + nx;
+                        hybrid_pixel_buf[pixel]          = colour;
+                        hybrid_cmd_type_buf[pixel] = pix_type;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void parse_enhanced(void) {
     build_anchors();
     connect_line_anchors();
     connect_fill_anchors();

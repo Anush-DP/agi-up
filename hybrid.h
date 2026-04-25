@@ -36,4 +36,5 @@ unsigned char hybrid_anchor_buf[HYBRID_BUFFER_SIZE];
 unsigned char hybrid_cmd_type_buf[HYBRID_BUFFER_SIZE];
 
 // Public API
-extern void pic_enhance(void);
+extern void parse_enhanced(void);
+extern void enhance(int mode);

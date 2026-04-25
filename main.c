@@ -93,7 +93,7 @@ static void key_callback(GLFWwindow *window, const int key, const int scan_code,
     if (key == GLFW_KEY_E && action == GLFW_PRESS) {
         if (!enhance_mode) {
             enhance_mode = true;
-            pic_enhance();
+            parse_enhanced();
         } else {
             enhance_mode = false;
         }
@@ -112,6 +112,18 @@ static void key_callback(GLFWwindow *window, const int key, const int scan_code,
     } else if (action == GLFW_RELEASE) {
         if (key == GLFW_KEY_RIGHT || key == GLFW_KEY_LEFT)
             step_dir = 0;
+    }
+
+    if (key == GLFW_KEY_COMMA && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+        if (enhance_mode) enhance(0);  /* all sources */
+    }
+
+    if (key == GLFW_KEY_PERIOD && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+        if (enhance_mode) enhance(1);  /* line sources only */
+    }
+
+    if (key == GLFW_KEY_SLASH && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+        if (enhance_mode) enhance(2);  /* fill / no-cmd sources only */
     }
 }
 
