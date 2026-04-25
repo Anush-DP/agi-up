@@ -211,6 +211,33 @@ static bool is_line_cmd(int cmd_id) {
     return cmd_id >= 0 && cmd_log[cmd_id].opcode != 0xF8;
 }
 
+static void detect_line_endings(void) {
+    for (int y = 0; y < PIC_H; y++) {
+        for (int x = 0; x < PIC_W; x++) {
+            const int     idx    = y * PIC_W + x;
+            const int cmd_id = ref_cmd_buf[idx];
+            if (!is_line_cmd(cmd_id)) continue;
+
+            const unsigned char color  = ref_pixel_buf[idx];
+            Anchor             *anchor = &anchors[idx];
+
+            int same_cmd_count = 0;
+
+            // Detect ends
+            for (int dir = 0; dir < 8; dir++) {
+                const int nx = x + dir_dx[dir];
+                const int ny = y + dir_dy[dir];
+                if ((unsigned)nx >= (unsigned)PIC_W ||
+                    (unsigned)ny >= (unsigned)PIC_H) continue;
+                const int nidx = ny * PIC_W + nx;
+                if (ref_cmd_buf[nidx] == cmd_id) { same_cmd_count++; }
+            }
+
+            anchor->is_endpoint = (same_cmd_count < 2);
+        }
+    }
+}
+
 /*
  * Pass A: calculate connections for line-command anchors.
  *
@@ -225,31 +252,29 @@ static void connect_line_anchors(void) {
             const unsigned char color  = ref_pixel_buf[idx];
             Anchor             *anchor = &anchors[idx];
 
-            int same_cmd_count = 0;
-
-            // Connect to all same-colour neighbours
+            // Connect to all same-command neighbours
             for (int dir = 0; dir < 8; dir++) {
                 const int nx = x + dir_dx[dir];
                 const int ny = y + dir_dy[dir];
                 if ((unsigned)nx >= (unsigned)PIC_W ||
                     (unsigned)ny >= (unsigned)PIC_H) continue;
                 const int nidx = ny * PIC_W + nx;
-                // if (ref_pixel_buf[nidx] == color && is_line_cmd(ref_cmd_buf[nidx])) { // TODO - should we connect only to other lines?
-                //     set_connect(anchor, dir);
-                //     if (ref_cmd_buf[nidx] == cmd_id) { same_cmd_count++; }
-                // }
-                if (ref_pixel_buf[nidx] == color) { // TODO - should we connect only to other lines?
-                    set_connect(anchor, dir);
-                    if (ref_cmd_buf[nidx] == cmd_id) { same_cmd_count++; }
+
+                Anchor *target_anchor = &anchors[nidx];
+
+                if (!anchor->is_endpoint && !target_anchor->is_endpoint) {
+                    if (ref_cmd_buf[nidx] == cmd_id) {
+                        set_connect(anchor, dir);
+                    }
+                } else if (anchor->is_endpoint) {
+                    if (ref_cmd_buf[nidx] == cmd_id) {
+                        set_connect(anchor, dir);
+                    }
                 }
-                // if (ref_cmd_buf[nidx] == cmd_id) {
-                //     set_connect(anchor, dir);
-                //     same_cmd_count++;
-                // }
             }
 
-            if (same_cmd_count >= 2) {
-                /* Interior: no additional connections needed. */
+            if (!anchor->is_endpoint) {
+                // Nothing to do
             } else {
                 /* End-point. One connection per foreign same-colour command */
                 int     picked_cmd[8];
@@ -305,7 +330,7 @@ static void connect_line_anchors(void) {
                  * the single same-command neighbour behind us) regardless of
                  * the destination anchor's colour.
                  */
-                if (!has_forward_connect && same_cmd_count == 1) {
+                if (!has_forward_connect) {
                     for (int dir = 0; dir < 8; dir++) {
                         const int nx = x + dir_dx[dir];
                         const int ny = y + dir_dy[dir];
@@ -316,11 +341,21 @@ static void connect_line_anchors(void) {
                         const int fwd = (dir + 4) % 8;
                         const int fx  = x + dir_dx[fwd];
                         const int fy  = y + dir_dy[fwd];
-                        if ((unsigned)fx < (unsigned)PIC_W &&
-                            (unsigned)fy < (unsigned)PIC_H &&
-                            is_line_cmd(ref_cmd_buf[fy * PIC_W + fx])) {
+
+                        if (is_line_cmd(ref_cmd_buf[fy * PIC_W + fx])) {
                             set_connect(anchor, fwd);
                         }
+
+                        // Connect to the edge of the screen
+                        if (!((unsigned)fx < (unsigned)PIC_W &&
+                             (unsigned)fy < (unsigned)PIC_H)) {
+                            set_connect(anchor, fwd);
+                        }
+                        // if ((unsigned)fx < (unsigned)PIC_W &&
+                        //     (unsigned)fy < (unsigned)PIC_H &&
+                        //     is_line_cmd(ref_cmd_buf[fy * PIC_W + fx])) {
+                        //     set_connect(anchor, fwd);
+                        // }
                         break;
                     }
                 }
@@ -704,6 +739,7 @@ void enhance(const int mode) {
 
 void parse_enhanced(void) {
     build_anchors();
+    detect_line_endings();
     connect_line_anchors();
     connect_fill_anchors();
     hybrid_render();

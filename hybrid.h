@@ -29,6 +29,7 @@ typedef struct {
     bool connects_sw;
     bool connects_w;
     bool connects_nw;
+    bool is_endpoint;
 } Anchor;
 
 unsigned char hybrid_pixel_buf[HYBRID_BUFFER_SIZE];
