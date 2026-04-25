@@ -264,6 +264,7 @@ static void connect_line_anchors(void) {
 
                 if (!anchor->is_endpoint && !target_anchor->is_endpoint) {
                     if (ref_cmd_buf[nidx] == cmd_id) {
+                    // if (ref_pixel_buf[nidx] == color) {
                         set_connect(anchor, dir);
                     }
                 } else if (anchor->is_endpoint) {
@@ -290,6 +291,7 @@ static void connect_line_anchors(void) {
                         (unsigned)ny >= (unsigned)PIC_H) continue;
                     const int nidx = ny * PIC_W + nx;
                     if (ref_pixel_buf[nidx] != color) continue;
+                    if (!is_line_cmd(ref_cmd_buf[nidx])) continue;
                     const int cmd_n = ref_cmd_buf[nidx];
 
                     if (cmd_n == cmd_id) continue;
@@ -351,11 +353,6 @@ static void connect_line_anchors(void) {
                              (unsigned)fy < (unsigned)PIC_H)) {
                             set_connect(anchor, fwd);
                         }
-                        // if ((unsigned)fx < (unsigned)PIC_W &&
-                        //     (unsigned)fy < (unsigned)PIC_H &&
-                        //     is_line_cmd(ref_cmd_buf[fy * PIC_W + fx])) {
-                        //     set_connect(anchor, fwd);
-                        // }
                         break;
                     }
                 }
@@ -470,12 +467,13 @@ static void hybrid_render(void)
                 const int ny = y + dir_dy[dir];
                 if ((unsigned)nx < (unsigned)PIC_W && (unsigned)ny < (unsigned)PIC_H) continue;
                 if (!get_connect(anchor, dir)) continue;
-                const int bx = dir_dx[dir] > 0 ? HYBRID_W - 1
-                             : dir_dx[dir] < 0 ? 0
-                             : anchor->screen_x;
-                const int by = dir_dy[dir] > 0 ? HYBRID_H - 1
-                             : dir_dy[dir] < 0 ? 0
-                             : anchor->screen_y;
+                int steps = HYBRID_W + HYBRID_H;
+                if (dir_dx[dir] > 0 && HYBRID_W - 1 - anchor->screen_x < steps) { steps = HYBRID_W - 1 - anchor->screen_x; }
+                if (dir_dx[dir] < 0 && anchor->screen_x < steps)                 { steps = anchor->screen_x; }
+                if (dir_dy[dir] > 0 && HYBRID_H - 1 - anchor->screen_y < steps) { steps = HYBRID_H - 1 - anchor->screen_y; }
+                if (dir_dy[dir] < 0 && anchor->screen_y < steps)                 { steps = anchor->screen_y; }
+                const int bx = anchor->screen_x + dir_dx[dir] * steps;
+                const int by = anchor->screen_y + dir_dy[dir] * steps;
                 draw_line(anchor->screen_x, anchor->screen_y, bx, by, color, color, pix_type);
             }
         }
