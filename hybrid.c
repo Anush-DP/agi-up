@@ -526,13 +526,11 @@ static void connect_fill_anchors(void)
                 const int ay = y + dir_dy[diag_card_a[d]];
                 const int bx = x + dir_dx[diag_card_b[d]];
                 const int by = y + dir_dy[diag_card_b[d]];
-                const bool a_is_line = (unsigned)ax < (unsigned)PIC_W &&
-                                       (unsigned)ay < (unsigned)PIC_H &&
-                                       is_line_cmd(ref_cmd_buf[ay * PIC_W + ax]);
-                const bool b_is_line = (unsigned)bx < (unsigned)PIC_W &&
-                                       (unsigned)by < (unsigned)PIC_H &&
-                                       is_line_cmd(ref_cmd_buf[by * PIC_W + bx]);
-                if (a_is_line || b_is_line) continue;
+                if ((unsigned)ax < (unsigned)PIC_W && (unsigned)ay < (unsigned)PIC_H &&
+                    (unsigned)bx < (unsigned)PIC_W && (unsigned)by < (unsigned)PIC_H) {
+                    if (is_line_cmd(ref_cmd_buf[ay * PIC_W + ax]) &&
+                        is_line_cmd(ref_cmd_buf[by * PIC_W + bx])) continue;
+                    }
 
                 set_connect(anchor, diag);
             }
