@@ -238,10 +238,10 @@ static void connect_line_anchors(void) {
                 //     set_connect(anchor, dir);
                 //     if (ref_cmd_buf[nidx] == cmd_id) { same_cmd_count++; }
                 // }
-                // if (ref_pixel_buf[nidx] == color) { // TODO - should we connect only to other lines?
-                //     set_connect(anchor, dir);
-                //     if (ref_cmd_buf[nidx] == cmd_id) { same_cmd_count++; }
-                // }
+                if (ref_pixel_buf[nidx] == color) { // TODO - should we connect only to other lines?
+                    set_connect(anchor, dir);
+                    if (ref_cmd_buf[nidx] == cmd_id) { same_cmd_count++; }
+                }
                 // if (ref_cmd_buf[nidx] == cmd_id) {
                 //     set_connect(anchor, dir);
                 //     same_cmd_count++;

@@ -193,7 +193,7 @@ static void plot_pen(const int cx, const int cy){
 void pic_init(void) {
     for (int i = 0; i < PIC_BUFFER_SIZE; i++) {
         pixel_buf[i] = AGI_COLOR_WHITE;
-        cmd_buf[i] = 0xFF;
+        cmd_buf[i] = -1;
     }
 
     cmd_count = 0;
