@@ -33,21 +33,25 @@ static double last_step_time = 0.0;
 #define STEP_REPEAT_SEC     (1.0 / 60.0)
 
 
-void parse_args(const int argc, char **argv, int *monitor_index, const char **pic_path, const int monitor_count) {
+void parse_args(const int argc, char **argv, int *monitor_index, const char **pic_path, const int monitor_count, bool *save_bmp) {
     *monitor_index = 0;
     *pic_path = nullptr;
+    *save_bmp = false;
 
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-' && argv[i][1] == 'm') {
             *monitor_index = atoi(argv[i] + 2) - 1;
+        } else if (argv[i][0] == '-' && argv[i][1] == 'b') {
+            *save_bmp = true;
         } else {
             *pic_path = argv[i];
         }
     }
 
     if (!*pic_path) {
-        fprintf(stderr, "Usage: %s [-mN] <pic-file>\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-mN] [-b] <pic-file>\n", argv[0]);
         fprintf(stderr, "  -mN   open on monitor N (default: 1)\n");
+        fprintf(stderr, "  -b    write rendered image to <pic-file>.bmp\n");
         exit(EXIT_FAILURE);
     }
 
@@ -329,6 +333,60 @@ long load_image_data_from_file(const char *pic_path) {
     return size;
 }
 
+static void write_u16le(unsigned char *buf, int offset, unsigned int value) {
+    buf[offset]     = (unsigned char)(value);
+    buf[offset + 1] = (unsigned char)(value >> 8);
+}
+
+static void write_u32le(unsigned char *buf, int offset, unsigned int value) {
+    buf[offset]     = (unsigned char)(value);
+    buf[offset + 1] = (unsigned char)(value >> 8);
+    buf[offset + 2] = (unsigned char)(value >> 16);
+    buf[offset + 3] = (unsigned char)(value >> 24);
+}
+
+static void write_bmp(const char *pic_path) {
+    const int width           = PIC_W;
+    const int height          = PIC_H;
+    const int row_stride      = width * 3;           /* 480 bytes — already 4-byte aligned */
+    const int pixel_data_size = row_stride * height;
+    const int file_size       = 54 + pixel_data_size;
+
+    char bmp_path[4096];
+    snprintf(bmp_path, sizeof(bmp_path), "%s.bmp", pic_path);
+
+    FILE *file = fopen(bmp_path, "wb");
+    if (!file) {
+        fprintf(stderr, "Cannot write %s\n", bmp_path);
+        return;
+    }
+
+    unsigned char header[54] = {0};
+    header[0] = 'B'; header[1] = 'M';
+    write_u32le(header,  2, (unsigned int)file_size);
+    write_u32le(header, 10, 54);                     /* pixel data offset */
+    write_u32le(header, 14, 40);                     /* DIB header size */
+    write_u32le(header, 18, (unsigned int)width);
+    write_u32le(header, 22, (unsigned int)-height);  /* negative = top-down */
+    write_u16le(header, 26, 1);                      /* colour planes */
+    write_u16le(header, 28, 24);                     /* bits per pixel */
+    write_u32le(header, 34, (unsigned int)pixel_data_size);
+    fwrite(header, 1, sizeof(header), file);
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int color = pixel_buf[y * width + x];
+            if (color < 0 || color >= AGI_NUM_COLORS) { color = AGI_COLOR_WHITE; }
+            fputc(color_palette[color][2], file); /* B */
+            fputc(color_palette[color][1], file); /* G */
+            fputc(color_palette[color][0], file); /* R */
+        }
+    }
+
+    fclose(file);
+    printf("Wrote %s\n", bmp_path);
+}
+
 int main(const int argc, char **argv) {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialise GLFW\n");
@@ -343,8 +401,9 @@ int main(const int argc, char **argv) {
 
     int monitor_index;
     const char *pic_path;
+    bool save_bmp;
 
-    parse_args(argc, argv, &monitor_index, &pic_path, monitor_count);
+    parse_args(argc, argv, &monitor_index, &pic_path, monitor_count, &save_bmp);
 
     GLFWwindow *window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT,
                                           WINDOW_TITLE,
@@ -364,6 +423,10 @@ int main(const int argc, char **argv) {
     first_parse();
     total_cmds = cmd_count;
     step_cmd = 0;
+
+    if (save_bmp) {
+        write_bmp(pic_path);
+    }
 
     while (!glfwWindowShouldClose(window)) {
         if (step_dir != 0) {
