@@ -47,8 +47,8 @@ jobs:
     - name: Build
       run: |
         cd build
-        cmake --build . --config ${{ matrix.build-type }} -- -j
-
+        cmake --build . --config ${{ matrix.build-type }} -- /m
+        
     - name: Test
       run: |
         cd build
